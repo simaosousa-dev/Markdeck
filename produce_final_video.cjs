@@ -3,211 +3,303 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 
-async function produceMasterVideo() {
-  const recordingsDir = path.join(__dirname, 'master_recordings');
-  if (!fs.existsSync(recordingsDir)) {
-    fs.mkdirSync(recordingsDir, { recursive: true });
-  }
+const FFMPEG = '/opt/homebrew/bin/ffmpeg';
+const OUTPUT_DIR = path.join(__dirname, 'video_clips');
+const FINAL_DIR = path.join(__dirname, 'final_output');
 
-  console.log('🎬 [LAUNCH PRODUCTION] Starting 1080x1350 Master Capture...');
+// Markdown content for the demo — purposeful, clean, realistic
+const DEMO_DECK = `# Estratégia Digital 2026
+Plano de produto para o próximo trimestre.
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: { width: 1080, height: 1350 },
-    recordVideo: {
-      dir: recordingsDir,
-      size: { width: 1080, height: 1350 },
-    },
-  });
+* Lançamento da nova API v3.0
+* Migração para micro-serviços
+* Dashboard analítico em tempo real
 
-  const page = await context.newPage();
-  const stagePath = 'file://' + path.resolve('stage.html');
-
-  console.log('Loading Stage at 1080x1350...');
-  await page.goto(stagePath);
-  await page.waitForTimeout(2500);
-
-  const frame = page.frameLocator('#app-frame');
-  const appFrame = page.frames().find(f => f.url().includes('5173') || f.name() === 'app-frame') || page.frames()[1];
-
-  // -----------------------------------------------------------------
-  // SCENE 1: HOOK & LIVE EDITING (00:00 – 00:09)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 1 (00:00 – 00:09): Live Markdown Editing');
-  await page.evaluate(() => window.setDemoScene(1));
-  await page.waitForTimeout(1000);
-
-  const cmContent = frame.locator('.cm-content');
-  await cmContent.click();
-  await page.keyboard.press('End');
-  await page.keyboard.type(' — Apresentações em Código');
-  await page.waitForTimeout(2500);
-
-  await page.keyboard.press('Enter');
-  await page.keyboard.type('* Desenvolvido com React 19 & Tailwind v4');
-  await page.waitForTimeout(3000);
-
-  // -----------------------------------------------------------------
-  // SCENE 2: ZERO-FRICTION DRAG & DROP (00:09 – 00:20)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 2 (00:09 – 00:20): Drag & Drop Import');
-  await page.evaluate(() => window.setDemoScene(2));
-  await page.waitForTimeout(1000);
-
-  const keynoteDeck = `# Markdeck Launch Keynote 🚀
-O motor moderno de apresentações em Markdown.
-
-* Arquitetura reativa e desacoplada
-* Zero instalação • 100% no browser
-* Transições cinematográficas nativas
+???
+Introduzir o roadmap técnico com dados reais.
 ---
-## Funcionalidades de Alto Nível ⚡
-Tudo o que um orador técnico precisa:
+## Arquitetura Proposta ⚡
 
-* **Ecrã Inteiro Nativo**: Foco absoluto no palco
-* **Reações em Tempo Real**: Celebração com confetti ('C')
-* **Exportação para PDF**: 1 slide por página em 16:9
+* **Frontend**: React 19 + Tailwind CSS v4
+* **Backend**: Node.js com Fastify
+* **Base de Dados**: PostgreSQL + Redis Cache
+* **Deploy**: GitHub Actions → Cloud Run
+
+???
+Detalhar a stack técnica escolhida e justificar cada decisão.
 ---
-## Sucesso Garantido! 🎉
-Construa o seu próximo deck em minutos.
+## Resultados Esperados 📊
+
+Redução de **40%** no tempo de deploy.
+
+Aumento de **3x** na velocidade de resposta da API.
+
+Cobertura de testes a **95%**.
+---
+# Obrigado! 🎉
+Pressione **C** para celebrar.
 
 🌐 ss20112006.github.io/Markdeck
 `;
 
-  // Simulate dragover to illuminate Apple HIG translucent dropzone
-  if (appFrame) {
-    await appFrame.evaluate(() => {
+async function recordClip(name, viewport, actions) {
+  const clipDir = path.join(OUTPUT_DIR, name);
+  if (!fs.existsSync(clipDir)) fs.mkdirSync(clipDir, { recursive: true });
+
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    viewport,
+    recordVideo: { dir: clipDir, size: viewport },
+  });
+  const page = await context.newPage();
+
+  await actions(page);
+
+  await page.close();
+  await context.close();
+  await browser.close();
+
+  // Find the recorded .webm
+  const files = fs.readdirSync(clipDir).filter(f => f.endsWith('.webm'));
+  if (files.length === 0) throw new Error(`No recording found for clip: ${name}`);
+  return path.join(clipDir, files[files.length - 1]);
+}
+
+async function main() {
+  [OUTPUT_DIR, FINAL_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+
+  const VP = { width: 1440, height: 900 };
+
+  // ═══════════════════════════════════════════
+  // CLIP 1: SPLIT-VIEW LIVE EDITING (8 seconds)
+  // ═══════════════════════════════════════════
+  console.log('🎬 Recording Clip 1: Split-View Live Editing...');
+  const clip1 = await recordClip('clip1_editing', VP, async (page) => {
+    await page.goto('http://localhost:5173');
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await page.waitForTimeout(1500);
+
+    // Click into CodeMirror editor
+    const cm = await page.waitForSelector('.cm-content');
+    await cm.click();
+
+    // Navigate to end of first line and add text character by character (visible typing)
+    await page.keyboard.press('Home');
+    await page.keyboard.press('End');
+
+    // Type slowly to show real-time sync
+    const textToType = ' — Edição Ao Vivo';
+    for (const char of textToType) {
+      await page.keyboard.type(char);
+      await page.waitForTimeout(80);
+    }
+    await page.waitForTimeout(2000);
+
+    // Navigate to next line and add a bullet
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    const bulletText = '* Sincronização instantânea do preview';
+    for (const char of bulletText) {
+      await page.keyboard.type(char);
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(2500);
+  });
+  console.log(`   ✓ ${clip1}`);
+
+  // ═══════════════════════════════════════════
+  // CLIP 2: DRAG & DROP IMPORT (7 seconds)
+  // ═══════════════════════════════════════════
+  console.log('🎬 Recording Clip 2: Drag & Drop Import...');
+  const clip2 = await recordClip('clip2_dragdrop', VP, async (page) => {
+    await page.goto('http://localhost:5173');
+    await page.waitForTimeout(1000);
+
+    // Trigger dragover overlay
+    await page.evaluate(() => {
       const screen = document.querySelector('.screen-only');
       if (screen) {
         screen.dispatchEvent(new DragEvent('dragover', {
-          bubbles: true,
-          cancelable: true,
-          dataTransfer: new DataTransfer(),
+          bubbles: true, cancelable: true, dataTransfer: new DataTransfer(),
         }));
       }
     });
-  }
-  await page.waitForTimeout(2200);
+    await page.waitForTimeout(2500);
 
-  // Simulate file drop
-  if (appFrame) {
-    await appFrame.evaluate((content) => {
-      const file = new File([content], 'keynote-lancamento.md', { type: 'text/markdown' });
+    // Drop the file
+    await page.evaluate((content) => {
+      const file = new File([content], 'estrategia-digital-2026.md', { type: 'text/markdown' });
       const dt = new DataTransfer();
       dt.items.add(file);
       const screen = document.querySelector('.screen-only');
       if (screen) {
         screen.dispatchEvent(new DragEvent('drop', {
-          bubbles: true,
-          cancelable: true,
-          dataTransfer: dt,
+          bubbles: true, cancelable: true, dataTransfer: dt,
         }));
       }
-    }, keynoteDeck);
+    }, DEMO_DECK);
+
+    await page.waitForTimeout(3500);
+  });
+  console.log(`   ✓ ${clip2}`);
+
+  // ═══════════════════════════════════════════
+  // CLIP 3: PRESENTATION MODE + NAVIGATION (14 seconds)
+  // ═══════════════════════════════════════════
+  console.log('🎬 Recording Clip 3: Presentation Mode...');
+  const clip3 = await recordClip('clip3_presentation', VP, async (page) => {
+    // Load the demo deck first
+    await page.goto('http://localhost:5173');
+    await page.evaluate((content) => {
+      localStorage.setItem('markdeck:content', content);
+      localStorage.setItem('markdeck:filename', 'estrategia-digital-2026.md');
+    }, DEMO_DECK);
+    await page.reload();
+    await page.waitForTimeout(1500);
+
+    // Click Apresentar button
+    await page.click('button[aria-label="Iniciar Apresentação (Cmd+Enter)"]');
+    await page.waitForTimeout(2500);
+
+    // Slide 1 → Slide 2
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(3000);
+
+    // Slide 2 → Slide 3
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(3000);
+
+    // Slide 3 → Slide 4
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(3000);
+
+    await page.waitForTimeout(1500);
+  });
+  console.log(`   ✓ ${clip3}`);
+
+  // ═══════════════════════════════════════════
+  // CLIP 4: CONFETTI CELEBRATION (6 seconds)
+  // ═══════════════════════════════════════════
+  console.log('🎬 Recording Clip 4: Confetti...');
+  const clip4 = await recordClip('clip4_confetti', VP, async (page) => {
+    // Load the demo deck at slide 4 (Obrigado)
+    await page.goto('http://localhost:5173');
+    await page.evaluate((content) => {
+      localStorage.setItem('markdeck:content', content);
+      localStorage.setItem('markdeck:filename', 'estrategia-digital-2026.md');
+    }, DEMO_DECK);
+    await page.reload();
+    await page.waitForTimeout(500);
+
+    // Navigate to last slide
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(200);
+
+    // Enter presentation on last slide
+    await page.click('button[aria-label="Iniciar Apresentação (Cmd+Enter)"]');
+    await page.waitForTimeout(1500);
+
+    // Fire confetti
+    await page.keyboard.press('c');
+    await page.waitForTimeout(1500);
+    await page.keyboard.press('c');
+    await page.waitForTimeout(3000);
+  });
+  console.log(`   ✓ ${clip4}`);
+
+  // ═══════════════════════════════════════════
+  // CLIP 5: SHORTCUTS MODAL (5 seconds)
+  // ═══════════════════════════════════════════
+  console.log('🎬 Recording Clip 5: Shortcuts Modal...');
+  const clip5 = await recordClip('clip5_shortcuts', VP, async (page) => {
+    await page.goto('http://localhost:5173');
+    await page.evaluate((content) => {
+      localStorage.setItem('markdeck:content', content);
+      localStorage.setItem('markdeck:filename', 'estrategia-digital-2026.md');
+    }, DEMO_DECK);
+    await page.reload();
+    await page.waitForTimeout(1000);
+
+    // Open shortcuts modal
+    await page.click('button[aria-label="Atalhos de teclado"]');
+    await page.waitForTimeout(4000);
+  });
+  console.log(`   ✓ ${clip5}`);
+
+  // ═══════════════════════════════════════════
+  // POST-PROCESSING: Build final 1080x1350 MP4
+  // ═══════════════════════════════════════════
+  console.log('\n🎞️  Building final 1080x1350 (4:5) composite video...');
+
+  // Step 1: Convert each clip to MP4 with consistent framerate
+  const clips = [
+    { src: clip1, name: 'clip1.mp4', dur: 8 },
+    { src: clip2, name: 'clip2.mp4', dur: 7 },
+    { src: clip3, name: 'clip3.mp4', dur: 14 },
+    { src: clip4, name: 'clip4.mp4', dur: 6 },
+    { src: clip5, name: 'clip5.mp4', dur: 5 },
+  ];
+
+  for (const clip of clips) {
+    const outPath = path.join(FINAL_DIR, clip.name);
+    execSync(`${FFMPEG} -y -i "${clip.src}" -t ${clip.dur} -c:v libx264 -pix_fmt yuv420p -r 30 -preset fast -crf 18 "${outPath}"`, { stdio: 'pipe' });
+    console.log(`   ✓ Encoded ${clip.name} (${clip.dur}s)`);
   }
 
-  console.log('   Deck dropped successfully! Holding on new preview...');
-  await page.waitForTimeout(4000);
+  // Step 2: Create concat list
+  const concatFile = path.join(FINAL_DIR, 'concat.txt');
+  const concatContent = clips.map(c => `file '${c.name}'`).join('\n');
+  fs.writeFileSync(concatFile, concatContent);
 
-  // -----------------------------------------------------------------
-  // SCENE 3: IMMERSIVE PRESENTATION MODE (00:20 – 00:36)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 3 (00:20 – 00:36): Presentation Mode Navigation');
-  await page.evaluate(() => window.setDemoScene(3));
-  await page.waitForTimeout(1000);
+  // Step 3: Concatenate all clips into one seamless 1440x900 raw video
+  const rawConcat = path.join(FINAL_DIR, 'raw_concat.mp4');
+  execSync(`${FFMPEG} -y -f concat -safe 0 -i "${concatFile}" -c:v libx264 -pix_fmt yuv420p -r 30 -preset medium -crf 18 "${rawConcat}"`, { stdio: 'pipe' });
+  console.log('   ✓ Concatenated raw clips');
 
-  // Click Apresentar button
-  await frame.locator('button:has-text("Apresentar")').click();
-  await page.waitForTimeout(3500);
-
-  // Next Slide (Slide 2: Features)
-  console.log('   Advancing to Slide 2 (Features)...');
-  await frame.locator('nav[aria-label="Controlos de Apresentação"] button[aria-label="Próximo slide"]').click();
-  await page.waitForTimeout(4000);
-
-  // Next Slide (Slide 3: Finale)
-  console.log('   Advancing to Slide 3 (Finale)...');
-  await frame.locator('nav[aria-label="Controlos de Apresentação"] button[aria-label="Próximo slide"]').click();
-  await page.waitForTimeout(4000);
-
-  // -----------------------------------------------------------------
-  // SCENE 4: INTERACTIVE CELEBRATION (00:36 – 00:46)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 4 (00:36 – 00:46): Confetti Celebration');
-  await page.evaluate(() => window.setDemoScene(4));
-  await page.waitForTimeout(800);
-
-  // Click Confetti Celebration button
-  await frame.locator('nav[aria-label="Controlos de Apresentação"] button[aria-label="Lançar Confetti"]').click();
-  console.log('   Confetti exploding! Holding 5.5s...');
-  await page.waitForTimeout(5500);
-
-  // -----------------------------------------------------------------
-  // SCENE 5: POWER TOOLKIT & SHORTCUTS (00:46 – 00:54)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 5 (00:46 – 00:54): Shortcuts & Power Toolkit');
-  await page.evaluate(() => window.setDemoScene(5));
-  
-  // Close presentation mode
-  await frame.locator('nav[aria-label="Controlos de Apresentação"] button[aria-label="Sair da apresentação"]').click();
-  await page.waitForTimeout(1200);
-
-  // Open Keyboard Shortcuts modal
-  await frame.locator('button[aria-label="Atalhos de teclado"]').click();
-  await page.waitForTimeout(3800);
-
-  // Close shortcuts modal
-  await frame.locator('button[aria-label="Fechar atalhos"]').click();
-  await page.waitForTimeout(1200);
-
-  // -----------------------------------------------------------------
-  // SCENE 6: BRAND OUTRO & VERIFIED CTA (00:54 – 01:00)
-  // -----------------------------------------------------------------
-  console.log('▶ Scene 6 (00:54 – 01:00): Brand Outro & Call to Action');
-  await page.evaluate(() => window.showOutro());
-  await page.waitForTimeout(6000);
-
-  console.log('Closing browser to finalize capture...');
-  await page.close();
-  await context.close();
-  await browser.close();
-
-  const webmFiles = fs.readdirSync(recordingsDir).filter(f => f.endsWith('.webm'));
-  if (webmFiles.length === 0) {
-    throw new Error('No raw recording file found.');
-  }
-
-  const rawWebm = path.join(recordingsDir, webmFiles[webmFiles.length - 1]);
-  console.log(`Raw master recording: ${rawWebm}`);
-
-  // -----------------------------------------------------------------
-  // FINAL ENCODING: Broadcast-grade MP4 (H.264, 4:5, 30fps)
-  // -----------------------------------------------------------------
-  console.log('Encoding final 1080x1350 MP4 with FFmpeg...');
+  // Step 4: Composite into 1080x1350 (4:5) canvas
+  // Layout: dark background → scaled app (960x600 centered) → rounded window chrome
   const finalMp4 = path.join(__dirname, 'markdeck_launch_demo.mp4');
+  const compositeCmd = `${FFMPEG} -y -i "${rawConcat}" -filter_complex "
+    color=c=#0a0a10:s=1080x1350:r=30[bg];
+    [0:v]scale=960:600[app];
+    [bg][app]overlay=60:375[out]
+  " -map "[out]" -c:v libx264 -pix_fmt yuv420p -r 30 -preset medium -crf 18 -movflags +faststart "${finalMp4}"`;
+  execSync(compositeCmd, { stdio: 'pipe' });
+  console.log(`   ✓ Final composite: ${finalMp4}`);
+
+  // Step 5: Copy to Desktop
   const desktopMp4 = path.join(process.env.HOME, 'Desktop', 'markdeck_launch_demo.mp4');
-  const thumbnailPng = path.join(__dirname, 'thumbnail.png');
-  const desktopThumbnail = path.join(process.env.HOME, 'Desktop', 'markdeck_thumbnail.png');
-
-  // FFmpeg H.264 transcode with faststart for instantaneous mobile playback
-  const encodeCmd = `/opt/homebrew/bin/ffmpeg -y -i "${rawWebm}" -c:v libx264 -pix_fmt yuv420p -r 30 -preset medium -crf 20 -movflags +faststart "${finalMp4}"`;
-  execSync(encodeCmd, { stdio: 'inherit' });
   fs.copyFileSync(finalMp4, desktopMp4);
-  console.log(`✓ Master Video: ${finalMp4}`);
-  console.log(`✓ Desktop Copy: ${desktopMp4}`);
+  console.log(`   ✓ Desktop copy: ${desktopMp4}`);
 
-  // Generate Thumbnail at t=28s (when presentation Slide 2 is displayed inside the stage)
-  console.log('Generating high-res 1080x1350 thumbnail at t=28s...');
-  const thumbCmd = `/opt/homebrew/bin/ffmpeg -y -ss 00:00:28 -i "${finalMp4}" -vframes 1 "${thumbnailPng}"`;
-  execSync(thumbCmd, { stdio: 'inherit' });
-  fs.copyFileSync(thumbnailPng, desktopThumbnail);
-  console.log(`✓ Thumbnail: ${thumbnailPng}`);
-  console.log(`✓ Desktop Thumbnail: ${desktopThumbnail}`);
+  // Step 6: Generate thumbnail at t=22s (presentation mode scene)
+  const thumbnailPng = path.join(__dirname, 'thumbnail.png');
+  const desktopThumb = path.join(process.env.HOME, 'Desktop', 'markdeck_thumbnail.png');
+  execSync(`${FFMPEG} -y -ss 22 -i "${finalMp4}" -vframes 1 -update 1 "${thumbnailPng}"`, { stdio: 'pipe' });
+  fs.copyFileSync(thumbnailPng, desktopThumb);
+  console.log(`   ✓ Thumbnail: ${thumbnailPng}`);
 
-  console.log('🎉 [PRODUCTION SUCCESSFUL] Video and artifacts ready for LinkedIn!');
+  // Step 7: Get final duration
+  const probe = execSync(`${FFMPEG} -i "${finalMp4}" 2>&1 || true`).toString();
+  const durMatch = probe.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
+  const duration = durMatch ? durMatch[1] : 'unknown';
+
+  console.log('\n🎉 ═══════════════════════════════════════════');
+  console.log('   PRODUCTION COMPLETE');
+  console.log('   ═══════════════════════════════════════════');
+  console.log(`   📹 Video:     ${finalMp4}`);
+  console.log(`   📹 Desktop:   ${desktopMp4}`);
+  console.log(`   🖼️  Thumbnail: ${thumbnailPng}`);
+  console.log(`   ⏱️  Duration:  ${duration}`);
+  console.log(`   📐 Resolution: 1080x1350 (4:5)`);
+  console.log(`   🎬 Codec:     H.264 / 30fps`);
+  console.log('   ═══════════════════════════════════════════\n');
 }
 
-produceMasterVideo().catch(err => {
-  console.error('Master production error:', err);
+main().catch(err => {
+  console.error('PRODUCTION ERROR:', err);
   process.exit(1);
 });
